@@ -6,7 +6,7 @@ DatabaseConnector.py - A file to control the sqlite database connection
 """
 import sqlite3
 from sqlite3 import Error
-from typing import Union
+from typing import Union, List
 
 
 class db_conn:
@@ -42,15 +42,29 @@ class BotDatabase:
                               ); """
         create_text_commands_sql = """ CREATE TABLE IF NOT EXISTS text_commands (
                                         id integer PRIMARY KEY,
-                                        command_name text UNIQUE,
+                                        command_name text NOT NULL UNIQUE,
                                         response text NOT NULL,
                                         admin integer NOT NULL DEFAULT 0
                                     ); """
+        create_role_commands_sql = """ CREATE TABLE IF NOT EXISTS role_commands (
+                                        id integer PRIMARY KEY,
+                                        command_name text NOT NULL UNIQUE
+                                    );"""
+        create_roles_sql = """ CREATE TABLE IF NOT EXISTS roles (
+                                id integer PRIMARY KEY,
+                                role_id integer NOT NULL UNIQUE,
+                                role_command_id integer NOT NULL,
+                                FOREIGN KEY(role_command_id) REFERENCES role_commands(id)
+                           );"""
+
         insert_self_sql = """ INSERT OR IGNORE INTO admins (user_id) VALUES (?)"""
+
         with db_conn(self.db_file) as c:
             # Create tables
             c.execute(create_su_table_sql)
             c.execute(create_text_commands_sql)
+            c.execute(create_role_commands_sql)
+            c.execute(create_roles_sql)
 
             # Initial data population
             c.execute(insert_self_sql, ['170045009318510593'])
@@ -129,6 +143,46 @@ class BotDatabase:
                 row = {'command_name': row[0], 'response': row[1]}
             return row
 
+    def find_role_command(self, command_name):
+        select_role_command_sql = """ SELECT id, command_name FROM role_commands 
+                                    WHERE command_name=? """
+        select_roles_sql = """ SELECT role_id FROM roles WHERE role_command_id=? """
+        with db_conn(self.db_file) as c:
+            c.execute(select_role_command_sql, [command_name])
+            try:
+                role_command_id, cmd_name = c.fetchone()
+                c.execute(select_roles_sql, [role_command_id])
+                role_list = c.fetchall()
+                return [role[0] for role in role_list]
+            except TypeError as e:
+                print(e)
+                return None
+
+    def add_role_command(self, command_name: str, roles: List[int]):
+        insert_role_command_sql = """ INSERT INTO role_commands (command_name) VALUES (?) """
+        insert_role_sql = """ INSERT INTO roles (role_id, role_command_id) VALUES (?, ?) """
+        with db_conn(self.db_file) as c:
+            c.execute(insert_role_command_sql, [command_name])
+            row_id = c.lastrowid
+            for role_id in roles:
+                c.execute(insert_role_sql, (role_id, row_id))
+
+    def delete_role_command(self, command_name: str):
+        delete_roles_sql = """ DELETE FROM roles WHERE role_command_id = ? """
+        delete_role_command_sql = """ DELETE FROM role_commands WHERE command_name = ? """
+        select_role_command_id = """ SELECT id FROM role_commands WHERE command_name = ? """
+        with db_conn(self.db_file) as c:
+            c.execute(select_role_command_id, [command_name])
+            row_id = c.fetchone()[0]
+            c.execute(delete_roles_sql, [row_id])
+            c.execute(delete_role_command_sql, [command_name])
+
+    def get_all_role_commands(self):
+        select_all_role_commands_sql = """ SELECT * FROM role_commands """
+        with db_conn(self.db_file) as c:
+            c.execute(select_all_role_commands_sql)
+            return c.fetchall()
+
     def is_user_admin(self, user_id: Union[str, int]):
         """
         Check if a user exists in the admins table
@@ -172,4 +226,15 @@ def create_connection(db_file):
 if __name__ == '__main__':
     # create_connection('../db/pythonsqlite.db')
     db = BotDatabase()
-    print(db.find_text_command('test', True))
+    print(db.get_all_role_commands())
+    print(db.find_role_command('roe'))
+
+    # with db_conn('../db/pythonsqlite.db') as cursor:
+    #     cursor.execute(""" SELECT * FROM admins """)
+    #     print(cursor.fetchall())
+    #     cursor.execute(""" SELECT * FROM text_commands """)
+    #     print('\n'.join([str(row) for row in cursor.fetchall()]))
+    #     cursor.execute(""" SELECT * FROM role_commands """)
+    #     print(cursor.fetchall())
+    #     cursor.execute(""" SELECT * FROM roles """)
+    #    print(cursor.fetchall())

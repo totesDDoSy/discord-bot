@@ -15,6 +15,7 @@ class DiscordClient(discord.Client):
     """
     The main logic of the discord bot!
     """
+
     def __init__(self, prefix: str):
         """
         :param prefix: Prefix to find bot commands
@@ -31,7 +32,7 @@ class DiscordClient(discord.Client):
 
     @staticmethod
     async def on_ready():
-        print('Connected to server!')
+        print('Bot Ready!')
 
     async def on_message(self, message: discord.Message):
         if message.author == self.user:
@@ -59,7 +60,7 @@ class DiscordClient(discord.Client):
         elif command in self.admin_commands and is_admin:
             cmd_type = content.split(' ', 2)[1]
             # Add/Remove Command
-            if cmd_type == 'command':
+            if cmd_type == 'textcommand':
                 if command == 'add':
                     try:
                         self._add_text_command(content)
@@ -69,6 +70,19 @@ class DiscordClient(discord.Client):
 
                 elif command == 'remove':
                     self._delete_text_command(content)
+                    response_text = 'Command removed!'
+
+            # Add/Remove role command
+            elif cmd_type == 'rolecommand':
+                if command == 'add':
+                    try:
+                        self._add_role_command(content, message.role_mentions)
+                        response_text = 'Command added!'
+                    except sqlite3.IntegrityError as e:
+                        response_text = 'A role command with that name already exists!'
+
+                elif command == 'remove':
+                    self._delete_role_command(content)
                     response_text = 'Command removed!'
 
             # Add/Remove admin
@@ -91,6 +105,13 @@ class DiscordClient(discord.Client):
         # Text command
         else:
             text_command = self.db.find_text_command(command, is_admin)
+            role_ids = self.db.find_role_command(command)
+            if role_ids:
+                for role_id in role_ids:
+                    role = message.guild.get_role(role_id)
+                    await message.author.add_roles(role)
+                response_text = 'Roles granted!'
+
             if text_command:
                 response_text = text_command['response']
 
@@ -150,8 +171,34 @@ class DiscordClient(discord.Client):
         commands_list = '**Available Commands:**\n\n'
         if is_admin:
             commands_list += '*Admin Commands:*\n> ' + '\n> '.join(self.admin_commands) + '\n'
+
         commands_list += '\n*General Commands*:\n> ' + '\n> '.join(self.static_commands) + '\n> '
+        db_commands = []
         text_commands = [name for _, name, _, _ in self.db.get_all_text_commands(is_admin)]
-        text_commands.sort()
-        commands_list += '\n> '.join(text_commands)
+        db_commands.extend(text_commands)
+        role_commands = [name for _, name in self.db.get_all_role_commands()]
+        db_commands.extend(role_commands)
+        db_commands.sort()
+        commands_list += '\n> '.join(list(dict.fromkeys(db_commands)))
         return commands_list
+
+    def _add_role_command(self, content: str, roles: List[discord.Role]):
+        """
+        Add a role command to give a user roles
+        Example: !add rolecommand example @role
+        :param content: Message content
+        :param roles: List of roles to give on use
+        :return:
+        """
+        _, _, command_name, *_ = content.split(' ', 3)
+        self.db.add_role_command(command_name, [role.id for role in roles])
+
+    def _delete_role_command(self, content):
+        """
+        Remove a role command
+        Example: !remove rolecommand example
+        :param content:
+        :return:
+        """
+        _, _, command_name, *_ = content.split(' ', 3)
+        self.db.delete_role_command(command_name)
