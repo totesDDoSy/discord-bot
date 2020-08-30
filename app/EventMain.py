@@ -53,7 +53,7 @@ class DiscordClient(discord.Client):
 
         # List the available commands
         if command == 'commands':
-            response_text = ", ".join(self._list_commands(is_admin))
+            response_text = self._list_commands(is_admin)
 
         # Administration commands
         elif command in self.admin_commands and is_admin:
@@ -147,10 +147,11 @@ class DiscordClient(discord.Client):
         :param is_admin: Whether or not to display admin only commands
         :return:
         """
-        command_list = []
-        command_list.extend(self.static_commands)
-        command_list.extend([name for _, name, _, _ in self.db.get_all_text_commands(is_admin)])
+        commands_list = '**Available Commands:**\n\n'
         if is_admin:
-            command_list.extend(self.admin_commands)
-        return command_list
-
+            commands_list += '*Admin Commands:*\n> ' + '\n> '.join(self.admin_commands) + '\n'
+        commands_list += '\n*General Commands*:\n> ' + '\n> '.join(self.static_commands) + '\n> '
+        text_commands = [name for _, name, _, _ in self.db.get_all_text_commands(is_admin)]
+        text_commands.sort()
+        commands_list += '\n> '.join(text_commands)
+        return commands_list
